@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Physics Poop Party</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: linear-gradient(135deg, #f9d976, #f39f86);
+        font-family: "Comic Sans MS", cursive, sans-serif;
+      }
+
+      #canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+
+      .centered-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-5deg);
+        font-size: 4rem;
+        font-weight: bold;
+        text-shadow:
+          4px 4px 0px #8b4513,
+          8px 8px 0px rgba(0, 0, 0, 0.3);
+        color: #8b4513;
+        z-index: 0;
+        user-select: none;
+        animation: wobble 2s infinite alternate;
+      }
+
+      @keyframes wobble {
+        0% {
+          transform: translate(-50%, -50%) rotate(-5deg) scale(1);
+        }
+
+        50% {
+          transform: translate(-50%, -50%) rotate(3deg) scale(1.05);
+        }
+
+        100% {
+          transform: translate(-50%, -50%) rotate(-5deg) scale(1);
+        }
+      }
+
+      .rainbow-background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          124deg,
+          #ff2400,
+          #e81d1d,
+          #e8b71d,
+          #e3e81d,
+          #1de840,
+          #1ddde8,
+          #2b1de8,
+          #dd00f3,
+          #dd00f3
+        );
+        background-size: 1800% 1800%;
+        animation: rainbow 15s ease infinite;
+        opacity: 0;
+        transition: opacity 1s;
+        z-index: -1;
+      }
+
+      @keyframes rainbow {
+        0% {
+          background-position: 0% 82%;
+        }
+
+        50% {
+          background-position: 100% 19%;
+        }
+
+        100% {
+          background-position: 0% 82%;
+        }
+      }
+
+      .particle-container {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        z-index: -1;
+      }
+
+      .particle {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="canvas"></canvas>
+    <div class="rainbow-background"></div>
+    <div class="particle-container" id="particle-container"></div>
+    <div class="centered-text">💩 enjoy the show 💩</div>
+
+    <script>
+      // Physics constants
+      const GRAVITY = 0.2;
+      const BOUNCE = 0.85;
+      const FRICTION = 0.99;
+      const COLLISION_DAMPING = 0.8;
+
+      // Maximum objects before removing old ones (reduced for better performance)
+      const MAX_OBJECTS = 15;
+
+      // Spawn timing (slowed down for better performance)
+      const SPAWN_INTERVAL = 2000; // ms
+      const EXPLOSION_INTERVAL = 8000; // ms
+
+      // Canvas setup
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const particleContainer = document.getElementById("particle-container");
+      const rainbowBackground = document.querySelector(".rainbow-background");
+
+      // Set canvas to full window size
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      // Array to store all the bouncing objects
+      let objects = [];
+
+      // Emojis for fun
+      const emojis = [
+        "💩",
+        "🍩",
+        "🎈",
+        "🌮",
+        "🍕",
+        "🍦",
+        "🍭",
+        "⚽",
+        "🎁",
+        "🎯",
+        "🌟",
+      ];
+
+      // Default images for variety (small colored circles encoded as base64)
+      const defaultImages = [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABhElEQVRYR+2WMU7DMBSGnxMQA0xdYGOFiYGJgYkJiYmNlYmJiYGJgYmNhYmJjQMgRMd2sBgQEwfgAIgD8KQnuVFMnMiJnYgFW5Fa+73v/e/9thWu+FM3rh9bAGNb8C8tcF33UAjxqJQ6A86BQAjxHgTBeZ7nJwBHPbKtF7DdbhEUx/FdmqbnUsq9PvJCCFgsFidpmr5Go9GBUmoleZ7vulnGAIwsQRCcKaVuhRAtALeLWIN3IghjzEsURft9CGMAlBJCPMVxfDQEoA4i2WXNDICzxWLx2HWLdElnEKZLukCMBjBGGtYQnQB0uW2QziB0C3Y55+8QXUCMAbARROcQ+XB9zfd9jx/aJEkOu4AYC7ARVN9DCGFLn6apAOj1PENJuIQwhjJVEGMA1tpXACGlXJtrOI7jpWl6o1dKGIZ3SqlLpdSjYRjGYZoAIISwfN+H2eFnDFwH8dMplkLeAmybFmwBbLrHYy1g/FbWjpumae/L5dLrI15XhLZtQ5a9jMmMfgHKA2lSvMZMaQAAAABJRU5ErkJggg==",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABhklEQVRYR+2WvUrEQBSFz42wgoWFnYWdhZ2NtZWdlZWVlZWVlZWVlaWVlZUPIFjb2dkIChaWPoAPsA/gyUyyOEzIZjZ/kEVImMCQmXvuN+feuQmw4i+suH7cA+hbgn9pged5B0S0KaW8YeZzInohovckSc5ijLsADntkmxtgtVrhKE3T3TiOzwDAXkNeCIG73e40juOXMAz3pZTvCmOMtqfQBkDLEkXRqZTyWgjRAbDdItYQOoLQWj9HUbTThjAKQCkieozj+LALgCaIYJs1YwCcZln20HTL",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABUklEQVRYR+2WsUrEQBCG/4mFCDZW2tlZaGdja2VnZWVlZWVlZWVlZWlpa+MDCFZWdjYignZ2PoAP4AP4ACaTyBHCXbJJLlyCCUtyO9/8M/N/uxFW/EUrrh8TgL4t+JcWlGV5SUQXWutnZr4lojciejfGHMcY9wAc9cC2X8But0NQnuf3RVFcEdFBH/JKKdhut6dFUbzkeX6otX5XxBhtT6ENgJUlz/MzrfWTUqoDYLdFrCF0BRFjfM7z/KANYRSAUYToKc/z4y4ATRBJE2tugYu6rh+6bpEu6QzCdkkXiNEAxkjDGqITgC63DdIZhG3BgXN+gogKpdR63ddCCAWbJMlRFxBjAWwE1fcwxlj35HnOs7nWEIuOqFNKLZTW+pKZb5j50TAM4zBNABARbDYbmB1+xsB1ED+dYinkI4D/YsGkgKZ7PNYCxm9l7bimaUqbpplwPf4C7ANwdscEGDUAAAAASUVORK5CYII=",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABcklEQVRYR+2WMU7DMBTGT45AKjCxdGHrxMTAxMAEEhMLKxMTEwMTAxMLCxMTGxwCwcTGVoTExAE4AMcAT3qSG8XUiZzYQS3YitTa733vf+9/XUcr/qIV148dgKEt+JcWFEVxEgTBg1LqBrgFQiHEexAEN2maniMc9cg278F2u0VQlmX3RVFcCyH2+8gLIWC73Z4VRfGaJMmhUupDEUJoewptAKwsSZKcK6WehBAdALstYg3eiSCMMa9Jkuz3IYwBMEoI8Zxl2dEQgDqIfJs1NwA3ZVk+dt0iXdI5CdMlXSBGAxgjDWuITgC63DZI5yR0C/a89/cISpRSm3VfC0kp2CRJEG5c1AVEyFqW5QXOcnCdDsAnrHW0IQHIbwFsjDHr7Q+U1rrHedM09wAHSqmF0lqfIjQw8DPP84zDNCVCiGC/32vP8whc11MErgP66RRLIR8B/BcLJgU03eOxFjB+K2vHNU3T3pdLnUe8bglt24Ys+xzDjP4Abp5xRm4FEDsAAAAASUVORK5CYII=",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABdklEQVRYR+2WsUrEQBCG/4mFIFhY2VnYWWhnY2tlZ2VlZWVlZWVlZWlpa2PpAwhWVnY2IoKdnQ/gA/gA/sMkS5Ylucvd5iBXmJDL7c78M/N/uxlgxV+24vphB2BoC/6lBWVZnhLRvVLqBbgBQiHEIgiCq7quz4CjHtnmC9hsNgiq6/oxz/MLIcReH3khBKzX67O6rt/iOD5USn0ojDHankIbACtLFEVnSqkXIUQHwG6LWEPoRBDGmLcoivb7EMYAGKWUes3z/GgIQBNEtsmaK+C6qqrHrltkhHQOYYZkC4jRAPZIQxei0wS6XDfI5yG6BXu898sISoQQm3VfW5JSsInj+HAbiJA1z/MLHGrsdboG/MBxRxsCAH8GsNHGWO9+pbUe8b5pmnsAB7LdQmmt0TlBVlHkadNcYYwJVqsV9rxbgOfBdRA/nWIt5DOA/2LBpHDT/R5rAdO3cu641WqV7ddrDfwVwBK69g9Z5mMC0/sFXm1wRjQjRVkAAAAASUVORK5CYII=",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABZklEQVRYR+2WsUoDQRCG/7mFECysLO0s7CzsrK2t7CwtLSwsLCwsLCwsLS2tfADBwsLGRkSwsfEBfAAfwAdwuUl2kSO5y93mIFeYkMvtzPwz83+7GWDJn1zy+rEF0LcF/9KCoiiOiegmlHoGLoFYCPEWRdF5nudnAA56ZJvvwWazwaiyLB+y7H9fEnme323D+eLGGOtOYRuAtaUoilOl1LMQogNgd4dYQ+hEEMaYlyiK9vsQxgCYUAjxlKbp4RCAJohkkzXXwGWe5w9tt0iHdA5iumQLxGgAU6RhF2IrAF2uF8jnIboFe97vEZQIITa7vlaSUrCJouhgG4iYtSzLC3Q1PutEDfjGdCcbEgD/G8BGG2O9+5XWeod3XdfdANhXSi2U1voCTYPDnGZpYowJVqvVjud5BBNuOoifz2Kr5ROA/2LBrHDd/R5rAdO3cu64u/t93/cZ+AeXLaHr/pRlPiYwoy9RXnZGPrgaQwAAAABJRU5ErkJggg==",
+      ];
+
+      // Try to load custom ball image
+      const customBallImage = new Image();
+      customBallImage.src = "ball.png"; // Attempt to load from same directory
+      let customBallLoaded = false;
+
+      customBallImage.onload = function () {
+        customBallLoaded = true;
+        console.log("Custom ball image loaded successfully!");
+      };
+
+      customBallImage.onerror = function () {
+        console.log("Custom ball image failed to load, using default images");
+      };
+
+      // Object class for bouncing elements
+      class PhysicsObject {
+        constructor(x, y, type = "default", customData = null) {
+          this.x = x;
+          this.y = y;
+          this.radius = Math.random() * 30 + 20;
+          this.vx = (Math.random() - 0.5) * 10;
+          this.vy = (Math.random() - 0.5) * 10;
+          this.rotation = 0;
+          this.rotationSpeed = (Math.random() - 0.5) * 0.2;
+          this.type = type;
+          this.opacity = 1;
+          this.bounceSound = Math.floor(Math.random() * 3);
+          this.age = 0;
+          this.lifespan = Math.random() * 10000 + 5000; // 5-15 seconds lifespan
+          this.scale = 1;
+          this.scaleDirection = Math.random() > 0.5 ? 0.005 : -0.005;
+
+          if (type === "custom" && customBallLoaded) {
+            this.image = customBallImage;
+          } else if (type === "default") {
+            // Random color circle
+            const imageIdx = Math.floor(Math.random() * defaultImages.length);
+            this.image = new Image();
+            this.image.src = defaultImages[imageIdx];
+          } else if (type === "emoji") {
+            this.emoji = emojis[Math.floor(Math.random() * emojis.length)];
+            this.fontSize = this.radius * 1.5;
+          } else if (type === "particle") {
+            this.color =
+              customData.color || `hsl(${Math.random() * 360}, 100%, 50%)`;
+            this.radius = customData.radius || Math.random() * 10 + 5;
+            this.lifespan = customData.lifespan || Math.random() * 2000 + 1000;
+          }
+        }
+
+        update() {
+          // Update age
+          this.age += 16; // Approximately 16ms per frame at 60fps
+
+          // Apply gravity
+          this.vy += GRAVITY;
+
+          // Apply friction
+          this.vx *= FRICTION;
+          this.vy *= FRICTION;
+
+          // Update position
+          this.x += this.vx;
+          this.y += this.vy;
+
+          // Update rotation
+          this.rotation += this.rotationSpeed;
+
+          // Handle edge collisions
+          if (this.x - this.radius < 0) {
+            this.x = this.radius;
+            this.vx = -this.vx * BOUNCE;
+            this.playBounceEffect();
+          }
+
+          if (this.x + this.radius > canvas.width) {
+            this.x = canvas.width - this.radius;
+            this.vx = -this.vx * BOUNCE;
+            this.playBounceEffect();
+          }
+
+          if (this.y - this.radius < 0) {
+            this.y = this.radius;
+            this.vy = -this.vy * BOUNCE;
+            this.playBounceEffect();
+          }
+
+          if (this.y + this.radius > canvas.height) {
+            this.y = canvas.height - this.radius;
+            this.vy = -this.vy * BOUNCE;
+            this.playBounceEffect();
+          }
+
+          // Pulsating effect
+          if (this.type !== "particle") {
+            this.scale += this.scaleDirection;
+            if (this.scale > 1.1 || this.scale < 0.9) {
+              this.scaleDirection = -this.scaleDirection;
+            }
+          }
+
+          // Fade out at end of life
+          if (this.age > this.lifespan - 1000) {
+            this.opacity = Math.max(
+              0,
+              1 - (this.age - (this.lifespan - 1000)) / 1000,
+            );
+          }
+        }
+
+        playBounceEffect() {
+          if (Math.abs(this.vx) > 1 || Math.abs(this.vy) > 1) {
+            // Create small particles on bounce
+            if (Math.random() > 0.7) {
+              createParticles(this.x, this.y, 3);
+            }
+          }
+        }
+
+        draw() {
+          ctx.save();
+          ctx.globalAlpha = this.opacity;
+
+          ctx.translate(this.x, this.y);
+          ctx.rotate(this.rotation);
+          ctx.scale(this.scale, this.scale);
+
+          if (this.type === "custom" || this.type === "default") {
+            ctx.drawImage(
+              this.image,
+              -this.radius,
+              -this.radius,
+              this.radius * 2,
+              this.radius * 2,
+            );
+          } else if (this.type === "emoji") {
+            ctx.font = `${this.fontSize}px Arial`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(this.emoji, 0, 0);
+          } else if (this.type === "particle") {
+            ctx.fillStyle = this.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+
+        isExpired() {
+          return this.age >= this.lifespan;
+        }
+      }
+
+      // Create particles for explosion effects (reduced count for performance)
+      function createParticles(x, y, count = 5) {
+        const colors = ["#FF5252", "#FFEB3B", "#2196F3", "#4CAF50", "#9C27B0"];
+
+        // Limit total number of particles for performance
+        if (objects.filter((obj) => obj.type === "particle").length > 25) {
+          return;
+        }
+
+        for (let i = 0; i < count; i++) {
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          const particle = new PhysicsObject(x, y, "particle", {
+            color: color,
+            radius: Math.random() * 4 + 2,
+            lifespan: Math.random() * 800 + 300, // Shorter lifespan
+          });
+
+          // More explosive velocity for particles
+          const speed = Math.random() * 8 + 3;
+          const angle = Math.random() * Math.PI * 2;
+          particle.vx = Math.cos(angle) * speed;
+          particle.vy = Math.sin(angle) * speed;
+
+          objects.push(particle);
+        }
+      }
+
+      // Create a big explosion effect (simplified for performance)
+      function createExplosion(x, y) {
+        // Show rainbow background briefly
+        rainbowBackground.style.opacity = "0.7";
+        setTimeout(() => {
+          rainbowBackground.style.opacity = "0";
+        }, 1000);
+
+        // Create particle explosion (reduced count)
+        createParticles(x, y, 20);
+
+        // Create new objects radiating outward (fewer objects)
+        for (let i = 0; i < 3; i++) {
+          const obj = addRandomObject(x, y);
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 10 + 5;
+          obj.vx = Math.cos(angle) * speed;
+          obj.vy = Math.sin(angle) * speed;
+        }
+      }
+
+      // Add a new physics object of random type
+      function addRandomObject(x = null, y = null) {
+        // Random position if not specified
+        x = x || Math.random() * canvas.width;
+        y = y || Math.random() * canvas.height;
+
+        // Choose object type with preference for custom ball if available
+        let objectType;
+        const rand = Math.random();
+
+        if (customBallLoaded && rand < 0.6) {
+          objectType = "custom";
+        } else if (rand < 0.8) {
+          objectType = "default";
+        } else {
+          objectType = "emoji";
+        }
+
+        const obj = new PhysicsObject(x, y, objectType);
+        objects.push(obj);
+
+        // Limit number of objects
+        if (objects.length > MAX_OBJECTS) {
+          // Find the oldest non-particle object
+          let oldestIdx = -1;
+          let oldestAge = -1;
+
+          for (let i = 0; i < objects.length; i++) {
+            if (objects[i].type !== "particle" && objects[i].age > oldestAge) {
+              oldestAge = objects[i].age;
+              oldestIdx = i;
+            }
+          }
+
+          if (oldestIdx !== -1) {
+            objects.splice(oldestIdx, 1);
+          }
+        }
+
+        return obj;
+      }
+
+      // Main update loop
+      function update() {
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Update and draw all objects
+        for (let i = objects.length - 1; i >= 0; i--) {
+          objects[i].update();
+
+          // Remove expired objects
+          if (objects[i].isExpired()) {
+            objects.splice(i, 1);
+            continue;
+          }
+
+          objects[i].draw();
+        }
+
+        // Check for collisions (simplified for better performance)
+        // Only check every other frame to improve performance
+        if (Math.floor(Date.now() / 30) % 2 === 0) {
+          // Only check collisions for main objects (not particles)
+          const mainObjects = objects.filter((obj) => obj.type !== "particle");
+
+          for (let i = 0; i < mainObjects.length; i++) {
+            for (let j = i + 1; j < mainObjects.length; j++) {
+              const obj1 = mainObjects[i];
+              const obj2 = mainObjects[j];
+
+              const dx = obj2.x - obj1.x;
+              const dy = obj2.y - obj1.y;
+              // Use squared distance for performance (avoids square root)
+              const distSquared = dx * dx + dy * dy;
+              const minDistance = obj1.radius + obj2.radius;
+
+              // If objects are colliding
+              if (distSquared < minDistance * minDistance) {
+                // Simplified collision - just reverse directions with damping
+                const tempVx = obj1.vx;
+                const tempVy = obj1.vy;
+
+                obj1.vx = obj2.vx * COLLISION_DAMPING;
+                obj1.vy = obj2.vy * COLLISION_DAMPING;
+                obj2.vx = tempVx * COLLISION_DAMPING;
+                obj2.vy = tempVy * COLLISION_DAMPING;
+
+                // Add a bit of separation to prevent sticking
+                const angle = Math.atan2(dy, dx);
+                obj1.x -= Math.cos(angle) * 2;
+                obj1.y -= Math.sin(angle) * 2;
+                obj2.x += Math.cos(angle) * 2;
+                obj2.y += Math.sin(angle) * 2;
+
+                // Occasional particle effect (less frequent)
+                if (Math.random() > 0.9) {
+                  const midX = (obj1.x + obj2.x) / 2;
+                  const midY = (obj1.y + obj2.y) / 2;
+                  createParticles(midX, midY, 1);
+                }
+              }
+            }
+          }
+        }
+
+        // Continue animation loop
+        requestAnimationFrame(update);
+      }
+
+      // Use requestAnimationFrame for timing instead of setInterval for better performance
+      let lastSpawnTime = 0;
+      let lastExplosionTime = 0;
+
+      // Automatically spawn objects using animation frame timing
+      function checkAutoActions(timestamp) {
+        // Initial objects (only if we have none)
+        if (objects.length === 0) {
+          for (let i = 0; i < 5; i++) {
+            addRandomObject();
+          }
+        }
+
+        // Regular spawning using timestamp
+        if (timestamp - lastSpawnTime > SPAWN_INTERVAL) {
+          addRandomObject();
+          lastSpawnTime = timestamp;
+        }
+
+        // Random explosions using timestamp
+        if (timestamp - lastExplosionTime > EXPLOSION_INTERVAL) {
+          if (Math.random() > 0.5) {
+            // 50% chance of explosion
+            const x = Math.random() * canvas.width;
+            const y = Math.random() * canvas.height;
+            createExplosion(x, y);
+          }
+          lastExplosionTime = timestamp;
+        }
+      }
+
+      // Main update loop with performance optimizations
+      function update(timestamp) {
+        // Check for auto spawning and explosions
+        checkAutoActions(timestamp);
+
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Update and draw all objects
+        for (let i = objects.length - 1; i >= 0; i--) {
+          objects[i].update();
+
+          // Remove expired objects
+          if (objects[i].isExpired()) {
+            objects.splice(i, 1);
+            continue;
+          }
+
+          objects[i].draw();
+        }
+
+        // Continue animation loop
+        requestAnimationFrame(update);
+      }
+
+      // Start the animation
+      requestAnimationFrame(update);
+    </script>
+  </body>
+</html>
